@@ -1,0 +1,672 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>texte_converti.html - Converti</title><style>body { font-family: sans-serif; line-height: 1.6; padding: 2rem; max-width: 800px; margin: auto; background: #fff; color: #333; }</style></head><body>import React, { useState, useRef, useEffect } from 'react';<br>
+import { Upload, Plus, Minus, Printer, Trash2, Settings, AlertCircle, Info, Lock, Unlock, PaintBucket, FileText, LayoutGrid } from 'lucide-react';<br>
+<br>
+const PAPER_SIZES = {<br>
+  A4: { width: 210, height: 297, name: "A4 (Standard)" },<br>
+  A3: { width: 297, height: 420, name: "A3 (Grand Format)" }<br>
+};<br>
+<br>
+const InfoTooltip = ({ text }) => (<br>
+  <div className="relative flex items-center group ml-1 cursor-help"><br>
+    <Info size={14} className="text-slate-500 hover:text-blue-400 transition-colors" /><br>
+    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-56 p-2 bg-slate-800 text-xs text-slate-200 rounded shadow-xl border border-slate-600 z-50 text-center font-normal pointer-events-none"><br>
+      {text}<br>
+      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-600"></div><br>
+    </div><br>
+  </div><br>
+);<br>
+<br>
+export default function App() {<br>
+  const [rectos, setRectos] = useState([]);<br>
+  const [verso, setVerso] = useState(null); <br>
+  const [appMessage, setAppMessage] = useState(null);<br>
+  <br>
+  // Paramètres d'impression<br>
+  const [cardWidth, setCardWidth] = useState(63);<br>
+  const [cardHeight, setCardHeight] = useState(88);<br>
+  const [autoRatioLock, setAutoRatioLock] = useState(false);<br>
+  <br>
+  const [paperFormat, setPaperFormat] = useState('A4');<br>
+  const [bleed, setBleed] = useState(0);<br>
+  const [bleedMode, setBleedMode] = useState('extend');<br>
+  const [cardGap, setCardGap] = useState(0);<br>
+  const [showTrimLines, setShowTrimLines] = useState(false);<br>
+  const [pageMargin, setPageMargin] = useState(10);<br>
+  const [imageFit, setImageFit] = useState('cover');<br>
+  <br>
+  const printAreaRef = useRef(null);<br>
+<br>
+  useEffect(() => {<br>
+    if (autoRatioLock && rectos.length > 0) {<br>
+      const firstImg = rectos[0];<br>
+      if (firstImg.naturalWidth && firstImg.naturalHeight) {<br>
+        const ratio = firstImg.naturalWidth / firstImg.naturalHeight;<br>
+        const newWidth = Number((cardHeight * ratio).toFixed(1));<br>
+        if (cardWidth !== newWidth) {<br>
+          setCardWidth(newWidth);<br>
+        }<br>
+      }<br>
+    }<br>
+  }, [autoRatioLock, cardHeight, rectos]);<br>
+<br>
+  const handleRectoUpload = async (e) => {<br>
+    const files = Array.from(e.target.files);<br>
+    <br>
+    const newRectos = await Promise.all(files.map(async (file) => {<br>
+      const url = URL.createObjectURL(file);<br>
+      return new Promise((resolve) => {<br>
+        const img = new Image();<br>
+        img.onload = () => {<br>
+          resolve({<br>
+            id: crypto.randomUUID(),<br>
+            file,<br>
+            url,<br>
+            name: file.name,<br>
+            quantity: 1,<br>
+            naturalWidth: img.naturalWidth,<br>
+            naturalHeight: img.naturalHeight<br>
+          });<br>
+        };<br>
+        img.src = url;<br>
+      });<br>
+    }));<br>
+    <br>
+    setRectos(prev => [...prev, ...newRectos]);<br>
+  };<br>
+<br>
+  const handleVersoUpload = (e) => {<br>
+    const file = e.target.files[0];<br>
+    if (file) {<br>
+      const url = URL.createObjectURL(file);<br>
+      setVerso({ url });<br>
+    }<br>
+  };<br>
+<br>
+  const updateQuantity = (id, delta) => {<br>
+    setRectos(prev => prev.map(recto => {<br>
+      if (recto.id === id) {<br>
+        const newQty = Math.max(1, recto.quantity + delta);<br>
+        return { ...recto, quantity: newQty };<br>
+      }<br>
+      return recto;<br>
+    }));<br>
+  };<br>
+<br>
+  const removeRecto = (id) => {<br>
+    setRectos(prev => prev.filter(r => r.id !== id));<br>
+  };<br>
+<br>
+  const getCardsPerPage = () => {<br>
+    const format = PAPER_SIZES[paperFormat];<br>
+    const availableWidth = format.width - (pageMargin * 2);<br>
+    const availableHeight = format.height - (pageMargin * 2);<br>
+    <br>
+    const totalCardWidth = cardWidth + (bleed * 2);<br>
+    const totalCardHeight = cardHeight + (bleed * 2);<br>
+    <br>
+    const cols = Math.floor((availableWidth + cardGap) / (totalCardWidth + cardGap));<br>
+    const rows = Math.floor((availableHeight + cardGap) / (totalCardHeight + cardGap));<br>
+    return cols * rows;<br>
+  };<br>
+<br>
+  // NOUVELLE FONCTION : Remplissage automatique<br>
+  const handleFillPage = () => {<br>
+    const capacity = getCardsPerPage();<br>
+    if (capacity <= 0 || rectos.length === 0) return;<br>
+<br>
+    const currentTotal = rectos.reduce((sum, r) => sum + r.quantity, 0);<br>
+    const remainder = currentTotal % capacity;<br>
+<br>
+    if (remainder === 0) {<br>
+      setAppMessage({ type: 'success', text: "Vos feuilles sont déjà parfaitement remplies !" });<br>
+      setTimeout(() => setAppMessage(null), 3000);<br>
+      return;<br>
+    }<br>
+<br>
+    const needed = capacity - remainder;<br>
+<br>
+    setRectos(prev => {<br>
+      const newArr = [...prev];<br>
+      // On ajoute les cartes manquantes au dernier élément de la liste<br>
+      const lastIndex = newArr.length - 1;<br>
+      newArr[lastIndex] = { ...newArr[lastIndex], quantity: newArr[lastIndex].quantity + needed };<br>
+      return newArr;<br>
+    });<br>
+    <br>
+    setAppMessage({ type: 'success', text: `${needed} carte(s) ajoutée(s) pour optimiser la feuille !` });<br>
+    setTimeout(() => setAppMessage(null), 3000);<br>
+  };<br>
+<br>
+  const generatePrintPages = () => {<br>
+    const cardsPerPage = getCardsPerPage();<br>
+    if (cardsPerPage <= 0) return [];<br>
+<br>
+    const allCardsToPrint = [];<br>
+    rectos.forEach(recto => {<br>
+      for (let i = 0; i < recto.quantity; i++) {<br>
+        allCardsToPrint.push(recto); <br>
+      }<br>
+    });<br>
+<br>
+    const pages = [];<br>
+    for (let i = 0; i < allCardsToPrint.length; i += cardsPerPage) {<br>
+      const pageRectos = allCardsToPrint.slice(i, i + cardsPerPage);<br>
+      pages.push({ type: 'recto', cards: pageRectos });<br>
+      <br>
+      if (verso) {<br>
+        const pageVersos = Array(pageRectos.length).fill(verso);<br>
+        pages.push({ type: 'verso', cards: pageVersos });<br>
+      }<br>
+    }<br>
+    return pages;<br>
+  };<br>
+<br>
+  const printPages = generatePrintPages();<br>
+  const totalCards = rectos.reduce((sum, r) => sum + r.quantity, 0);<br>
+<br>
+  const handlePrint = () => {<br>
+    if (rectos.length === 0) {<br>
+      setAppMessage({ type: 'error', text: "Veuillez ajouter au moins une face (recto) avant d'imprimer." });<br>
+      setTimeout(() => setAppMessage(null), 4000);<br>
+      return;<br>
+    }<br>
+<br>
+    try {<br>
+      const printWindow = window.open('', '_blank', 'width=1000,height=900');<br>
+      <br>
+      if (!printWindow) {<br>
+         setAppMessage({ type: 'error', text: "L'impression a été bloquée. Veuillez autoriser les pop-ups." });<br>
+         setTimeout(() => setAppMessage(null), 5000);<br>
+         return;<br>
+      }<br>
+<br>
+      const format = PAPER_SIZES[paperFormat];<br>
+<br>
+      let printHtmlContent = printPages.map(page => `<br>
+        <div class="print-page"><br>
+          ${page.cards.map(card => `<br>
+            <div class="print-card-container"><br>
+              <div class="print-card-wrapper" style="${bleedMode === 'extend' ? `background-color: black;` : ''}"><br>
+                <img src="${card.url || card}" alt="Card" class="print-card-img" /><br>
+              </div><br>
+              ${showTrimLines ? `<br>
+                <div class="crop-mark" style="top: ${bleed}mm; left: -4mm; width: 4mm; height: 0.1mm;"></div><br>
+                <div class="crop-mark" style="top: -4mm; left: ${bleed}mm; width: 0.1mm; height: 4mm;"></div><br>
+                <div class="crop-mark" style="top: ${bleed}mm; right: -4mm; width: 4mm; height: 0.1mm;"></div><br>
+                <div class="crop-mark" style="top: -4mm; right: ${bleed}mm; width: 0.1mm; height: 4mm;"></div><br>
+                <div class="crop-mark" style="bottom: ${bleed}mm; left: -4mm; width: 4mm; height: 0.1mm;"></div><br>
+                <div class="crop-mark" style="bottom: -4mm; left: ${bleed}mm; width: 0.1mm; height: 4mm;"></div><br>
+                <div class="crop-mark" style="bottom: ${bleed}mm; right: -4mm; width: 4mm; height: 0.1mm;"></div><br>
+                <div class="crop-mark" style="bottom: -4mm; right: ${bleed}mm; width: 0.1mm; height: 4mm;"></div><br>
+              ` : ''}<br>
+            </div><br>
+          `).join('')}<br>
+        </div><br>
+      `).join('');<br>
+<br>
+      printWindow.document.write(`<br>
+        <!DOCTYPE html><br>
+        <html><br>
+          <head><br>
+            <title>Impression - Nova Print Layout (${paperFormat})</title><br>
+            <style><br>
+              @page { size: ${paperFormat}; margin: 0mm; } <br>
+              body { margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }<br>
+              .print-page {<br>
+                page-break-after: always;<br>
+                width: ${format.width}mm;<br>
+                height: ${format.height}mm;<br>
+                padding: ${pageMargin}mm;<br>
+                box-sizing: border-box;<br>
+                display: flex;<br>
+                flex-wrap: wrap;<br>
+                align-content: flex-start;<br>
+                justify-content: center;<br>
+                gap: ${cardGap}mm; <br>
+              }<br>
+              .print-card-container {<br>
+                position: relative;<br>
+                width: ${cardWidth + (bleed * 2)}mm;<br>
+                height: ${cardHeight + (bleed * 2)}mm;<br>
+              }<br>
+              .print-card-wrapper {<br>
+                position: absolute;<br>
+                top: 0; left: 0;<br>
+                width: 100%;<br>
+                height: 100%;<br>
+                box-sizing: border-box;<br>
+                overflow: hidden;<br>
+                display: flex;<br>
+                align-items: center;<br>
+                justify-content: center;<br>
+                background-color: white; <br>
+              }<br>
+              .print-card-img {<br>
+                width: ${bleedMode === 'extend' ? `${cardWidth}mm` : '100%'};<br>
+                height: ${bleedMode === 'extend' ? `${cardHeight}mm` : '100%'};<br>
+                object-fit: ${imageFit};<br>
+                display: block;<br>
+              }<br>
+              .crop-mark {<br>
+                position: absolute;<br>
+                background-color: #334155; /* Gris foncé (Slate 700) */<br>
+                z-index: 20;<br>
+              }<br>
+            </style><br>
+          </head><br>
+          <body><br>
+            ${printHtmlContent}<br>
+            <script><br>
+              window.onload = () => {<br>
+                setTimeout(() => {<br>
+                  window.print();<br>
+                }, 500);<br>
+              };<br>
+            </script><br>
+          </body><br>
+        </html><br>
+      `);<br>
+      printWindow.document.close();<br>
+    } catch (err) {<br>
+      setAppMessage({ type: 'error', text: "Erreur lors de la préparation de l'impression." });<br>
+      setTimeout(() => setAppMessage(null), 4000);<br>
+    }<br>
+  };<br>
+<br>
+  return (<br>
+    <div className="min-h-screen bg-slate-900 text-slate-100 p-6 font-sans relative"><br>
+      <br>
+      {appMessage && (<br>
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-xl border flex items-center gap-3 transition-all ${appMessage.type === 'error' ? 'bg-red-900/90 border-red-500 text-red-100' : 'bg-emerald-900/90 border-emerald-500 text-emerald-100'}`}><br>
+          <AlertCircle size={20} /><br>
+          <span className="font-medium">{appMessage.text}</span><br>
+        </div><br>
+      )}<br>
+<br>
+      <div className="max-w-6xl mx-auto space-y-8"><br>
+        <header className="border-b border-slate-700 pb-4"><br>
+          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-3"><br>
+            <Printer size={32} /><br>
+            Nova Print Layout<br>
+          </h1><br>
+          <p className="text-slate-400 mt-2">Préparez vos planches de cartes pour l'impression recto-verso intelligente.</p><br>
+        </header><br>
+<br>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><br>
+          <div className="space-y-6 lg:col-span-1"><br>
+            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700"><br>
+              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><br>
+                <Settings size={20} className="text-emerald-400"/> Paramètres<br>
+              </h2><br>
+              <div className="space-y-4"><br>
+                <br>
+                <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 mb-2"><br>
+                  <label className="block text-sm font-bold text-blue-400 mb-2 flex items-center gap-2"><br>
+                    <FileText size={16} /> Format de la feuille<br>
+                    <InfoTooltip text="Sélectionnez la taille physique de la feuille qui sera chargée dans votre imprimante. Cela recalcule automatiquement le nombre de cartes par page." /><br>
+                  </label><br>
+                  <select <br>
+                    value={paperFormat} <br>
+                    onChange={(e) => setPaperFormat(e.target.value)}<br>
+                    className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:border-blue-500 outline-none font-medium"<br>
+                  ><br>
+                    <option value="A4">{PAPER_SIZES.A4.name} - {getCardsPerPage()} cartes/page</option><br>
+                    <option value="A3">{PAPER_SIZES.A3.name} - {getCardsPerPage()} cartes/page</option><br>
+                  </select><br>
+                </div><br>
+<br>
+                <div className="grid grid-cols-2 gap-4"><br>
+                  <div><br>
+                    <label className="block text-xs text-slate-400 mb-1 flex items-center"><br>
+                      Hauteur finale (mm)<br>
+                      <InfoTooltip text="La hauteur de la carte telle que vous la souhaitez une fois découpée (ex: 88mm)." /><br>
+                    </label><br>
+                    <input <br>
+                      type="number" <br>
+                      value={cardHeight} <br>
+                      onChange={(e) => setCardHeight(Number(e.target.value))}<br>
+                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"<br>
+                    /><br>
+                  </div><br>
+                  <div><br>
+                    <label className="block text-xs text-slate-400 mb-1 flex items-center"><br>
+                      Largeur finale (mm)<br>
+                      <InfoTooltip text="La largeur de la carte. Cochez le cadenas pour calculer cette valeur dynamiquement d'après votre image originale." /><br>
+                    </label><br>
+                    <div className="relative"><br>
+                      <input <br>
+                        type="number" <br>
+                        value={cardWidth} <br>
+                        onChange={(e) => setCardWidth(Number(e.target.value))}<br>
+                        disabled={autoRatioLock || rectos.length === 0}<br>
+                        className={`w-full bg-slate-900 border rounded p-2 text-white outline-none pr-8<br>
+                          ${autoRatioLock ? 'border-emerald-500/50 bg-emerald-900/10 text-emerald-300' : 'border-slate-700 focus:border-emerald-500'}<br>
+                          ${rectos.length === 0 ? 'opacity-50' : ''}<br>
+                        `}<br>
+                      /><br>
+                      <button <br>
+                        onClick={() => {<br>
+                          if (rectos.length === 0) {<br>
+                            alert("Veuillez d'abord charger une image recto pour calculer le ratio.");<br>
+                            return;<br>
+                          }<br>
+                          setAutoRatioLock(!autoRatioLock);<br>
+                        }}<br>
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-slate-700 ${autoRatioLock ? 'text-emerald-400' : 'text-slate-500'}`}<br>
+                        title={autoRatioLock ? "Déverrouiller la largeur" : "Calculer la largeur d'après l'image"}<br>
+                      ><br>
+                        {autoRatioLock ? <Lock size={14} /> : <Unlock size={14} />}<br>
+                      </button><br>
+                    </div><br>
+                    <label className="flex items-center gap-1 mt-2 cursor-pointer group"><br>
+                      <input <br>
+                        type="checkbox" <br>
+                        checked={autoRatioLock} <br>
+                        onChange={(e) => {<br>
+                          if (rectos.length === 0 && e.target.checked) {<br>
+                            alert("Veuillez d'abord charger une image recto.");<br>
+                            return;<br>
+                          }<br>
+                          setAutoRatioLock(e.target.checked);<br>
+                        }}<br>
+                        className="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-emerald-500"<br>
+                      /><br>
+                      <span className="text-[10px] text-slate-400 group-hover:text-emerald-300 transition-colors">Calculer d'après l'image</span><br>
+                    </label><br>
+                  </div><br>
+                </div><br>
+<br>
+                <div className="grid grid-cols-2 gap-4 border-t border-slate-700 pt-4 mt-2"><br>
+                  <div><br>
+                    <label className="block text-xs font-bold text-amber-400 mb-1 flex items-center"><br>
+                      Espace cartes (mm)<br>
+                      <InfoTooltip text="La gouttière (espace vide) entre chaque carte sur la feuille. Obligatoire (4-5mm min.) si vous utilisez de vrais traits de coupe croisés." /><br>
+                    </label><br>
+                    <input <br>
+                      type="number" <br>
+                      min="0"<br>
+                      step="1"<br>
+                      value={cardGap} <br>
+                      onChange={(e) => setCardGap(Number(e.target.value))}<br>
+                      className="w-full bg-slate-900 border border-amber-500/50 rounded p-2 text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none"<br>
+                    /><br>
+                  </div><br>
+                  <div><br>
+                    <label className="block text-xs font-bold text-red-400 mb-1 flex items-center"><br>
+                      Fond perdu (mm)<br>
+                      <InfoTooltip text="Marge de sécurité vitale pour la découpe au massicot. Cette zone d'image est imprimée intentionnellement pour être détruite par la lame." /><br>
+                    </label><br>
+                    <input <br>
+                      type="number" <br>
+                      min="0"<br>
+                      step="1"<br>
+                      value={bleed} <br>
+                      onChange={(e) => setBleed(Number(e.target.value))}<br>
+                      className="w-full bg-slate-900 border border-red-500/50 rounded p-2 text-white focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none"<br>
+                    /><br>
+                  </div><br>
+                </div><br>
+<br>
+                {bleed > 0 && (<br>
+                  <div className="border border-red-900/50 bg-red-900/10 p-3 rounded-lg mt-2"><br>
+                    <label className="block text-xs text-red-400 mb-2 font-bold flex items-center"><br>
+                      Méthode du Fond Perdu<br>
+                      <InfoTooltip text="En Classique, l'image est zoomée (vous perdez les bords du dessin). En Extension, on ajoute un faux bord noir tout autour pour protéger votre image complète." /><br>
+                    </label><br>
+                    <div className="space-y-2"><br>
+                      <label className="flex items-start gap-2 cursor-pointer"><br>
+                        <input <br>
+                          type="radio" <br>
+                          name="bleedMode" <br>
+                          value="zoom" <br>
+                          checked={bleedMode === 'zoom'} <br>
+                          onChange={(e) => setBleedMode(e.target.value)}<br>
+                          className="mt-1"<br>
+                        /><br>
+                        <span className="text-xs text-slate-300"><br>
+                          <strong className="text-white block">Classique (Zoom & Coupe)</strong><br>
+                          L'image est agrandie. Ses bords seront rognés.<br>
+                        </span><br>
+                      </label><br>
+                      <label className="flex items-start gap-2 cursor-pointer"><br>
+                        <input <br>
+                          type="radio" <br>
+                          name="bleedMode" <br>
+                          value="extend" <br>
+                          checked={bleedMode === 'extend'} <br>
+                          onChange={(e) => setBleedMode(e.target.value)}<br>
+                          className="mt-1"<br>
+                        /><br>
+                        <span className="text-xs text-slate-300"><br>
+                          <strong className="text-emerald-400 block">Extension noire (Recommandé)</strong><br>
+                          L'image est intacte. Une bordure noire artificielle est ajoutée.<br>
+                        </span><br>
+                      </label><br>
+                    </div><br>
+                  </div><br>
+                )}<br>
+                <br>
+                <div className="grid grid-cols-1 gap-4 border-t border-slate-700 pt-4 mt-2"><br>
+                  <div><br>
+                    <label className="block text-xs text-slate-400 mb-1 flex items-center"><br>
+                      Marge page {paperFormat} (mm)<br>
+                      <InfoTooltip text="Marge morte obligatoire (min 10mm). Empêche votre imprimante de tronquer les cartes situées aux extrémités de la feuille et force le centrage." /><br>
+                    </label><br>
+                    <input <br>
+                      type="number" <br>
+                      min="0"<br>
+                      value={pageMargin} <br>
+                      onChange={(e) => setPageMargin(Number(e.target.value))}<br>
+                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"<br>
+                    /><br>
+                  </div><br>
+                </div><br>
+<br>
+                <div className="grid grid-cols-2 gap-4 border-t border-slate-700 pt-4 mt-2"><br>
+                  <div className="col-span-2"><br>
+                    <label className="block text-xs text-slate-400 mb-1 flex items-center"><br>
+                      Ajustement d'image (Intérieur)<br>
+                      <InfoTooltip text="Comportement de l'image si ses proportions (ratio) ne correspondent pas à la dimension demandée. 'REMPLIR' est le standard pro (coupe les dépassements)." /><br>
+                    </label><br>
+                    <select <br>
+                      value={imageFit} <br>
+                      onChange={(e) => setImageFit(e.target.value)}<br>
+                      className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-sm"<br>
+                    ><br>
+                      <option value="cover">REMPLIR (Coupera si ratio différent)</option><br>
+                      <option value="contain">AJUSTER (100% visible, bandes possibles)</option><br>
+                      <option value="fill">ÉTIRER (Déformera l'image)</option><br>
+                    </select><br>
+                  </div><br>
+                  <div className="col-span-2 flex items-end pb-2"><br>
+                    <div className="flex flex-col"><br>
+                      <label className="flex items-center gap-2 cursor-pointer"><br>
+                        <input <br>
+                          type="checkbox" <br>
+                          checked={showTrimLines}<br>
+                          onChange={(e) => setShowTrimLines(e.target.checked)}<br>
+                          className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-emerald-500"<br>
+                        /><br>
+                        <span className="text-sm font-bold text-emerald-400 flex items-center gap-1"><br>
+                          Traits de coupe croisés<br>
+                          <InfoTooltip text="Dessine de fines croix gris foncé de 4mm de long aux quatre coins (extérieurs) de l'image. Indispensable pour aligner un massicot proprement." /><br>
+                        </span><br>
+                      </label><br>
+                      <p className="text-[10px] text-slate-400 mt-1 ml-6"><br>
+                        Ajoute des repères gris foncé à l'extérieur de l'image (nécessite un "Espace entre cartes" d'au moins 4mm pour être visibles).<br>
+                      </p><br>
+                    </div><br>
+                  </div><br>
+                </div><br>
+              </div><br>
+            </div><br>
+<br>
+            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700"><br>
+              <h2 className="text-xl font-semibold mb-4 text-slate-200">Dos des cartes (Verso)</h2><br>
+              <label className="relative flex flex-col items-center justify-center w-full h-32 border-2 border-slate-600 border-dashed rounded-lg cursor-pointer bg-slate-900 hover:bg-slate-800 transition-colors"><br>
+                {verso ? (<br>
+                  <div className="absolute inset-0 p-2 flex items-center justify-center bg-black"><br>
+                    <img src={verso.url} alt="Verso" className="max-h-full rounded shadow-md object-contain" /><br>
+                  </div><br>
+                ) : (<br>
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6 text-slate-400"><br>
+                    <Upload className="w-8 h-8 mb-2" /><br>
+                    <p className="text-sm">Cliquez pour charger le Verso</p><br>
+                  </div><br>
+                )}<br>
+                <input type="file" accept="image/*" className="hidden" onChange={handleVersoUpload} /><br>
+              </label><br>
+            </div><br>
+<br>
+            <button <br>
+              onClick={handlePrint}<br>
+              disabled={rectos.length === 0}<br>
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg"<br>
+            ><br>
+              <Printer size={24} /><br>
+              Générer l'impression ({totalCards} cartes - {Math.ceil(totalCards / (getCardsPerPage() || 1))} page(s))<br>
+            </button><br>
+          </div><br>
+<br>
+          <div className="lg:col-span-2 space-y-6"><br>
+            <br>
+            {rectos.length > 0 && (<br>
+              <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 flex flex-col items-center relative overflow-hidden"><br>
+                <h2 className="text-xl font-semibold mb-6 text-slate-200 w-full flex items-center gap-2"><br>
+                  <Settings size={20} className="text-blue-400" /><br>
+                  Simulateur et Analyseur Mathématique<br>
+                </h2><br>
+                <br>
+                {(() => {<br>
+                  const targetCard = rectos[0];<br>
+                  const simScale = 4; <br>
+                  const simBoxWidth = (cardWidth + (bleed * 2)) * simScale;<br>
+                  const simBoxHeight = (cardHeight + (bleed * 2)) * simScale;<br>
+<br>
+                  return (<br>
+                    <div className="flex flex-col md:flex-row items-start gap-8 w-full justify-center"><br>
+                      <br>
+                      <div className="relative shadow-2xl transition-all duration-300 bg-white shrink-0 overflow-hidden flex items-center justify-center" style={{ <br>
+                        width: `${simBoxWidth}px`, <br>
+                        height: `${simBoxHeight}px`,<br>
+                        backgroundColor: bleedMode === 'extend' ? 'black' : 'white'<br>
+                      }}><br>
+                        <br>
+                        <img <br>
+                          src={targetCard.url} <br>
+                          alt="Aperçu" <br>
+                          className="block"<br>
+                          style={{ <br>
+                            width: bleedMode === 'extend' ? `${cardWidth * simScale}px` : '100%',<br>
+                            height: bleedMode === 'extend' ? `${cardHeight * simScale}px` : '100%',<br>
+                            objectFit: imageFit <br>
+                          }} <br>
+                        /><br>
+                        <br>
+                        {bleed > 0 && (<br>
+                           <div <br>
+                            className="absolute inset-0 pointer-events-none z-20 transition-all"<br>
+                            style={{ <br>
+                              border: `${bleed * simScale}px solid rgba(0,0,0,0.5)`<br>
+                            }}<br>
+                           ></div><br>
+                        )}<br>
+<br>
+                        {showTrimLines && (<br>
+                          <div className="absolute z-30 pointer-events-none transition-all" style={{<br>
+                            top: `${bleed * simScale}px`,<br>
+                            left: `${bleed * simScale}px`,<br>
+                            right: `${bleed * simScale}px`,<br>
+                            bottom: `${bleed * simScale}px`,<br>
+                            border: '1px dashed #ef4444' <br>
+                          }}></div><br>
+                        )}<br>
+                      </div><br>
+<br>
+                      <div className="space-y-4 max-w-md w-full"><br>
+                        <div className="p-4 rounded-lg border text-sm bg-slate-900 border-slate-600 text-slate-300"><br>
+                          <strong className="block mb-2 text-emerald-400 flex items-center gap-2"><br>
+                             <PaintBucket size={16} /> Couleur d'extension : Noir massif<br>
+                          </strong><br>
+                          {bleedMode === 'extend' && bleed > 0 ? (<br>
+                            <p>✅ <strong>Génération sécurisée activée.</strong> Votre image est au centre, intacte. Le fond perdu de {bleed}mm est généré artificiellement en utilisant un noir pur. Rien ne sera rogné !</p><br>
+                          ) : bleedMode === 'zoom' && bleed > 0 ? (<br>
+                            <p>⚠️ <strong>Méthode classique (Rognage).</strong> Le système zoome dans votre image. La zone grisée sera coupée. Si du texte est sous la zone grisée, passez en mode "Extension noire".</p><br>
+                          ) : (<br>
+                            <p>ℹ️ Fond perdu à 0. L'image sera imprimée au format exact demandé sans marge de sécurité pour la découpe.</p><br>
+                          )}<br>
+                        </div><br>
+                      </div><br>
+                    </div><br>
+                  );<br>
+                })()}<br>
+              </div><br>
+            )}<br>
+<br>
+            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 min-h-[500px]"><br>
+              <div className="flex justify-between items-center mb-6"><br>
+                <h2 className="text-xl font-semibold text-slate-200">Faces des cartes (Rectos)</h2><br>
+                <br>
+                <div className="flex items-center gap-3"><br>
+                  {rectos.length > 0 && (<br>
+                    <button <br>
+                      onClick={handleFillPage}<br>
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium"<br>
+                      title="Calcule combien de cartes manquent pour remplir la feuille A3 ou A4, et les ajoute automatiquement"<br>
+                    ><br>
+                      <LayoutGrid size={16} /> Optimiser la page<br>
+                    </button><br>
+                  )}<br>
+                  <label className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg cursor-pointer transition-colors text-sm font-medium"><br>
+                    <Plus size={16} /> Ajouter des cartes<br>
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={handleRectoUpload} /><br>
+                  </label><br>
+                </div><br>
+              </div><br>
+<br>
+              {rectos.length === 0 ? (<br>
+                <div className="flex flex-col items-center justify-center h-64 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl"><br>
+                  <Upload size={48} className="mb-4 opacity-50" /><br>
+                  <p>Aucune carte chargée.</p><br>
+                </div><br>
+              ) : (<br>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"><br>
+                  {rectos.map((recto) => (<br>
+                    <div key={recto.id} className="bg-slate-900 rounded-lg p-3 border border-slate-700 flex flex-col group relative"><br>
+                      <button <br>
+                        onClick={() => removeRecto(recto.id)}<br>
+                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-400 z-10"<br>
+                      ><br>
+                        <Trash2 size={14} /><br>
+                      </button><br>
+                      <br>
+                      <div className="aspect-[63/88] w-full mb-3 rounded overflow-hidden border-2 border-slate-700 flex flex-col items-center justify-center relative group-hover:border-slate-500 transition-colors"><br>
+                         <img src={recto.url} alt="Recto" className="w-full h-full object-cover" /><br>
+                      </div><br>
+                      <br>
+                      <div className="mt-auto flex items-center justify-between bg-slate-800 rounded p-1"><br>
+                        <button <br>
+                          onClick={() => updateQuantity(recto.id, -1)}<br>
+                          className="p-1 hover:bg-slate-700 rounded text-slate-300"<br>
+                        ><br>
+                          <Minus size={16} /><br>
+                        </button><br>
+                        <span className="font-bold tabular-nums w-8 text-center">{recto.quantity}</span><br>
+                        <button <br>
+                          onClick={() => updateQuantity(recto.id, 1)}<br>
+                          className="p-1 hover:bg-slate-700 rounded text-slate-300"<br>
+                        ><br>
+                          <Plus size={16} /><br>
+                        </button><br>
+                      </div><br>
+                    </div><br>
+                  ))}<br>
+                </div><br>
+              )}<br>
+            </div><br>
+          </div><br>
+        </div><br>
+      </div><br>
+    </div><br>
+  );<br>
+}</body></html>
